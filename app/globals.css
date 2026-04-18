@@ -1,0 +1,115 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Manrope:wght@400;500;600;700;800&family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap');
+@import "tailwindcss";
+
+@theme {
+  /* Comprehensive theme configuration for colors, radii, and fonts */
+  --color-outline-variant: #c3c8bc;
+  --color-on-surface-variant: #43483f;
+  --color-secondary-fixed: #dae8be;
+  --color-on-secondary-fixed: #141f05;
+  --color-on-secondary-container: #5a6745;
+  --color-on-surface: #1b1c19;
+  --color-tertiary-container: #45443d;
+  --color-on-primary-container: #96ba9a;
+  --color-surface-container: #f0eee9;
+  --color-surface-container-low: #f5f3ee;
+  --color-on-tertiary-fixed-variant: #484740;
+  --color-on-tertiary: #ffffff;
+  --color-inverse-surface: #30312e;
+  --color-surface: #fbf9f4;
+  --color-outline: #73796e;
+  --color-on-background: #1b1c19;
+  --color-tertiary: #2e2e27;
+  --color-surface-tint: #45664b;
+  --color-on-secondary: #ffffff;
+  --color-on-error: #ffffff;
+  --color-on-tertiary-container: #b3b1a8;
+  --color-background: #fbf9f4;
+  --color-on-tertiary-fixed: #1c1c16;
+  --color-inverse-primary: #abd0af;
+  --color-primary: #3F5E24;
+  --color-on-error-container: #93000a;
+  --color-secondary-container: #d7e5bb;
+  --color-secondary: #6E5039;
+  --color-on-primary-fixed: #02210c;
+  --color-surface-container-high: #EADCD1;
+  --color-inverse-on-surface: #f2f1ec;
+  --color-surface-bright: #F9F6F0;
+  --color-on-secondary-fixed-variant: #3f4b2c;
+  --color-surface-dim: #D5CACA;
+  --color-surface-container-highest: #DFD3C8;
+  --color-surface-container-lowest: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-on-primary: #ffffff;
+  --color-primary-container: #2A4016;
+  --color-primary-fixed: #c7ecca;
+  --color-primary-fixed-dim: #abd0af;
+  --color-surface-variant: #e4e2dd;
+  --color-on-primary-fixed-variant: #2e4e35;
+  --color-tertiary-fixed: #e6e2d8;
+  --color-error: #ba1a1a;
+  --color-secondary-fixed-dim: #becca3;
+  --color-tertiary-fixed-dim: #c9c6bd;
+
+  --radius-DEFAULT: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  --font-headline: Manrope, sans-serif;
+  --font-body: Inter, sans-serif;
+  --font-label: Inter, sans-serif;
+  --font-manrope: Manrope, sans-serif;
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+body {
+  font-family: var(--font-body);
+  background-color: var(--color-surface);
+  color: var(--color-on-surface);
+}
+
+h1, h2, h3, .font-headline {
+  font-family: var(--font-headline);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: var(--color-outline-variant);
+  border-radius: 20px;
+  opacity: 0.5;
+}
+
+@keyframes shimmer {
+  0% { transform: translateX(-200%) skewX(-30deg); }
+  100% { transform: translateX(200%) skewX(-30deg); }
+}
+
+.animate-\\[shimmer_3s_infinite\\] {
+  animation: shimmer 3s infinite;
+}
