@@ -2,30 +2,38 @@
 
 import React, { useMemo, useState } from "react";
 import { useStore } from "@/lib/store";
-import type { Product } from "@/lib/store";
+import type { Product, AddOn } from "@/lib/store";
 
-type CartItem = { product: Product; quantity: number };
+type SelectedAddOn = { id: string; name: string; price: number };
+type CartItem = { product: Product; quantity: number; addOns: SelectedAddOn[] };
 
 const CATEGORIES_DEFAULT = ["All", "Drinks", "Snacks", "Merchandise", "Tea Bags"];
 
 // Quick cash amounts for the mocked checkout keypad
-const QUICK_AMOUNTS = [10, 20, 50, 100];
+const QUICK_AMOUNTS = [20, 50, 100, 500];
 
 export default function POSPage() {
   const { state } = useStore();
-  const { products, loading } = state;
+  const { products, addOns, loading } = state;
 
   const [selectedCat, setSelectedCat] = useState("All");
   const [cart, setCart]               = useState<CartItem[]>([]);
   const [customerName, setCustomerName] = useState("");
   const [checkingOut, setCheckingOut]   = useState(false);
   const [showPayModal, setShowPayModal] = useState(false);
+  // Add-on selector state
+  const [showAddOnModal, setShowAddOnModal] = useState(false);
+  const [pendingProduct, setPendingProduct] = useState<Product | null>(null);
+  const [selectedAddOns, setSelectedAddOns] = useState<string[]>([]);
+
   type ReceiptData = {
     id: string;
-    items: { name: string; qty: number; price: number }[];
+    items: { name: string; qty: number; price: number; addOns?: SelectedAddOn[] }[];
     subtotal: number;
     tax: number;
     total: number;
+    amountTendered: number;
+    change: number;
     customerName: string;
     date: string;
   };
@@ -45,33 +53,70 @@ export default function POSPage() {
   }, [products, selectedCat]);
 
   // ── Cart helpers ──────────────────────────────────────────────────────────
-  const addToCart = (p: Product) =>
+  const availableAddOns = useMemo(() => addOns.filter((a: AddOn) => a.available), [addOns]);
+
+  const handleProductTap = (p: Product) => {
+    // If there are add-ons available, show the add-on picker
+    if (availableAddOns.length > 0) {
+      setPendingProduct(p);
+      setSelectedAddOns([]);
+      setShowAddOnModal(true);
+    } else {
+      addToCartDirect(p, []);
+    }
+  };
+
+  const confirmAddOns = () => {
+    if (!pendingProduct) return;
+    const chosen = availableAddOns
+      .filter((a: AddOn) => selectedAddOns.includes(a.id))
+      .map((a: AddOn) => ({ id: a.id, name: a.name, price: a.price }));
+    addToCartDirect(pendingProduct, chosen);
+    setShowAddOnModal(false);
+    setPendingProduct(null);
+    setSelectedAddOns([]);
+  };
+
+  const addToCartDirect = (p: Product, addOnsList: SelectedAddOn[]) =>
     setCart((items) => {
-      const ex = items.find((ci) => ci.product.id === p.id);
-      if (ex) return items.map((ci) => ci.product.id === p.id ? { ...ci, quantity: ci.quantity + 1 } : ci);
-      return [...items, { product: p, quantity: 1 }];
+      // Check if an identical item+addOns combo exists
+      const addOnKey = addOnsList.map(a => a.id).sort().join(",");
+      const ex = items.find((ci) => {
+        const ciKey = ci.addOns.map(a => a.id).sort().join(",");
+        return ci.product.id === p.id && ciKey === addOnKey;
+      });
+      if (ex) return items.map((ci) => {
+        const ciKey = ci.addOns.map(a => a.id).sort().join(",");
+        return ci.product.id === p.id && ciKey === addOnKey ? { ...ci, quantity: ci.quantity + 1 } : ci;
+      });
+      return [...items, { product: p, quantity: 1, addOns: addOnsList }];
     });
 
-  const updateQty = (id: string, delta: number) =>
+  const cartItemKey = (ci: CartItem) => ci.product.id + "|" + ci.addOns.map(a => a.id).sort().join(",");
+
+  const updateQty = (key: string, delta: number) =>
     setCart((items) =>
       items
-        .map((ci) => ci.product.id === id ? { ...ci, quantity: Math.max(0, ci.quantity + delta) } : ci)
+        .map((ci) => cartItemKey(ci) === key ? { ...ci, quantity: Math.max(0, ci.quantity + delta) } : ci)
         .filter((ci) => ci.quantity > 0)
     );
 
-  const setQty = (id: string, qty: number) =>
-    setCart((items) =>
-      items
-        .map((ci) => ci.product.id === id ? { ...ci, quantity: Math.max(0, qty) } : ci)
-        .filter((ci) => ci.quantity > 0)
-    );
+  const removeFromCart = (key: string) =>
+    setCart((items) => items.filter((ci) => cartItemKey(ci) !== key));
 
-  const removeFromCart = (id: string) =>
-    setCart((items) => items.filter((ci) => ci.product.id !== id));
+  const getItemTotal = (ci: CartItem) => {
+    const addOnTotal = ci.addOns.reduce((s, a) => s + a.price, 0);
+    return (ci.product.price + addOnTotal) * ci.quantity;
+  };
 
-  const subtotal = cart.reduce((s, ci) => s + ci.product.price * ci.quantity, 0);
+  const subtotal = cart.reduce((s, ci) => s + getItemTotal(ci), 0);
   const tax      = 0;
   const total    = subtotal;
+
+  // ── Change calculation ────────────────────────────────────────────────────
+  const tenderedNum = parseFloat(amountTendered) || 0;
+  const change = tenderedNum - total;
+  const isInsufficient = amountTendered !== "" && change < 0;
 
   const handleKeypad = (val: string) => {
     if (val === 'C') {
@@ -106,8 +151,9 @@ export default function POSPage() {
           name:  ci.product.name,
           qty:   ci.quantity,
           price: ci.product.price,
+          addOns: ci.addOns,
         })),
-        total: total // optionally pass total if your API supports overriding calculation
+        total: total
       };
       const res = await fetch("/api/orders", {
         method:  "POST",
@@ -118,10 +164,12 @@ export default function POSPage() {
         const order = await res.json();
         setReceipt({
           id: order?.[0]?.id ?? "ORDER",
-          items: cart.map(ci => ({ name: ci.product.name, qty: ci.quantity, price: ci.product.price })),
+          items: cart.map(ci => ({ name: ci.product.name, qty: ci.quantity, price: ci.product.price, addOns: ci.addOns })),
           subtotal,
           tax,
           total,
+          amountTendered: tenderedNum,
+          change: change > 0 ? change : 0,
           customerName: customerName.trim(),
           date: new Date().toLocaleString()
         });
@@ -196,9 +244,7 @@ export default function POSPage() {
                     key={p.id}
                     id={`btn-add-${p.id}`}
                     onClick={() => {
-                        // If already in cart, tapping acts like a quick +1 add if we want, or just select.
-                        // Let's make it add +1 for faster POS experience
-                        addToCart(p);
+                        handleProductTap(p);
                     }}
                     className="relative bg-surface-container-lowest rounded-3xl p-3 flex flex-col shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-white/60 hover:shadow-[0_12px_40px_rgb(0,0,0,0.08)] hover:-translate-y-1 transition-all duration-300 text-left group overflow-hidden h-[240px]"
                   >
@@ -287,24 +333,36 @@ export default function POSPage() {
           ) : (
             <div className="space-y-3">
               {cart.map((ci) => (
-                <div key={ci.product.id} className="relative bg-white rounded-2xl p-4 shadow-sm border border-outline-variant/20 group hover:border-primary/30 transition-colors animate-in slide-in-from-right-4 duration-300">
-                  <div className="flex items-start justify-between gap-3 mb-3">
+                <div key={cartItemKey(ci)} className="relative bg-white rounded-2xl p-4 shadow-sm border border-outline-variant/20 group hover:border-primary/30 transition-colors animate-in slide-in-from-right-4 duration-300">
+                  <div className="flex items-start justify-between gap-3 mb-1">
                     <div className="flex-1 min-w-0 pr-2">
                         <p className="font-bold text-[#14341d] leading-tight text-[15px]">{ci.product.name}</p>
-                        <p className="text-xs text-on-surface-variant font-semibold mt-1">
-                          ₱{ci.product.price.toFixed(2)} / ea
-                        </p>
                     </div>
                     <p className="font-black text-primary text-lg shrink-0">
-                        ₱{(ci.product.price * ci.quantity).toFixed(2)}
+                        ₱{getItemTotal(ci).toFixed(2)}
                     </p>
                   </div>
+                  
+                  {ci.addOns.length > 0 ? (
+                    <div className="mb-3 space-y-1">
+                      {ci.addOns.map((addOn) => (
+                        <div key={addOn.id} className="flex justify-between items-center text-xs text-on-surface-variant">
+                          <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">add</span> {addOn.name}</span>
+                          <span>₱{addOn.price.toFixed(2)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-on-surface-variant font-semibold mt-1 mb-3">
+                      ₱{ci.product.price.toFixed(2)} / ea
+                    </p>
+                  )}
                   
                   {/* Quantity Control Row inside Cart Card */}
                   <div className="flex items-center justify-between border-t border-outline-variant/10 pt-3 mt-1">
                       <button
                         title="Remove"
-                        onClick={() => removeFromCart(ci.product.id)}
+                        onClick={() => removeFromCart(cartItemKey(ci))}
                         className="text-on-surface-variant hover:text-error transition-colors p-1.5 rounded-full hover:bg-error/10 flex items-center justify-center"
                       >
                         <span className="material-symbols-outlined text-[18px]">delete</span>
@@ -312,14 +370,14 @@ export default function POSPage() {
                       
                       <div className="flex items-center bg-surface-container-lowest rounded-full p-1 border border-outline-variant/20 shadow-inner">
                         <button 
-                          onClick={() => updateQty(ci.product.id, -1)} 
+                          onClick={() => updateQty(cartItemKey(ci), -1)} 
                           className="w-9 h-9 rounded-full bg-white text-on-surface flex items-center justify-center shadow-sm hover:bg-surface transition-colors active:scale-95"
                         >
                             <span className="material-symbols-outlined text-[20px]">remove</span>
                         </button>
                         <span className="w-10 text-center font-bold text-[#14341d] text-[15px]">{ci.quantity}</span>
                         <button 
-                          onClick={() => updateQty(ci.product.id, 1)} 
+                          onClick={() => updateQty(cartItemKey(ci), 1)} 
                           className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center shadow-sm hover:scale-105 transition-transform active:scale-95"
                         >
                             <span className="material-symbols-outlined text-[20px]">add</span>
@@ -372,6 +430,58 @@ export default function POSPage() {
         </div>
       </aside>
 
+      {/* ── Add-On Selection Modal ─────────────────────────────────────────────────── */}
+      {showAddOnModal && pendingProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in p-4">
+          <div className="bg-white w-full max-w-md rounded-[2rem] shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-6 border-b border-outline-variant/10 bg-[#fbf9f4]">
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="text-xl font-black text-primary font-headline">Customize Order</h3>
+                <button onClick={() => setShowAddOnModal(false)} className="text-on-surface-variant hover:text-primary transition-colors bg-surface-container-highest rounded-full p-1">
+                  <span className="material-symbols-outlined text-[20px]">close</span>
+                </button>
+              </div>
+              <p className="text-sm font-bold text-[#14341d]">{pendingProduct.name}</p>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-3 custom-scrollbar">
+              {availableAddOns.map((addOn: AddOn) => {
+                const isSelected = selectedAddOns.includes(addOn.id);
+                return (
+                  <label key={addOn.id} className={`flex items-center justify-between p-4 rounded-xl border-2 cursor-pointer transition-all ${isSelected ? 'border-primary bg-primary/5' : 'border-outline-variant/20 hover:border-primary/40'}`}>
+                    <div className="flex items-center gap-3">
+                      <div className={`w-6 h-6 rounded flex items-center justify-center border-2 ${isSelected ? 'bg-primary border-primary text-white' : 'border-outline-variant/40'}`}>
+                        {isSelected && <span className="material-symbols-outlined text-[16px]">check</span>}
+                      </div>
+                      <span className="font-bold text-[15px]">{addOn.name}</span>
+                    </div>
+                    <span className="font-black text-primary">+₱{addOn.price.toFixed(2)}</span>
+                    <input 
+                      type="checkbox" 
+                      className="hidden"
+                      checked={isSelected}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedAddOns([...selectedAddOns, addOn.id]);
+                        else setSelectedAddOns(selectedAddOns.filter(id => id !== addOn.id));
+                      }}
+                    />
+                  </label>
+                );
+              })}
+            </div>
+            
+            <div className="p-6 border-t border-outline-variant/10 bg-white">
+              <button 
+                onClick={confirmAddOns}
+                className="w-full bg-primary text-white rounded-xl py-4 font-black text-lg hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-primary/20"
+              >
+                Add to Cart • ₱{(pendingProduct.price + availableAddOns.filter((a: AddOn) => selectedAddOns.includes(a.id)).reduce((s: number, a: AddOn) => s + a.price, 0)).toFixed(2)}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Checkout / Payment Modal (Glassmorphic) ─────────────────────────────────────────────────── */}
       {showPayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-surface/40 backdrop-blur-md animate-in fade-in p-4 xl:p-8">
@@ -389,18 +499,30 @@ export default function POSPage() {
                     </div>
 
                     {/* Fake Keypad Display */}
-                    <div className="relative mb-6 group">
+                    <div className="relative mb-4 group">
                         <div className="absolute left-4 top-1/2 -translate-y-1/2 text-primary font-black text-2xl">₱</div>
                         <input 
                             readOnly
                             value={amountTendered}
-                            className="w-full text-right text-4xl font-black bg-white rounded-2xl py-4 pr-6 pl-12 border-2 border-primary/20 focus:border-primary outline-none text-primary"
+                            className={`w-full text-right text-4xl font-black bg-white rounded-2xl py-4 pr-6 pl-12 border-2 outline-none transition-colors ${isInsufficient && amountTendered !== "" ? 'border-error text-error' : 'border-primary/20 focus:border-primary text-primary'}`}
                         />
+                    </div>
+                    
+                    {/* Change Display */}
+                    <div className="flex justify-between items-center px-4 py-3 bg-surface-container-highest rounded-xl">
+                      <span className="font-bold text-on-surface-variant">Change</span>
+                      {amountTendered === "" ? (
+                        <span className="font-bold text-on-surface-variant">₱0.00</span>
+                      ) : isInsufficient ? (
+                        <span className="font-bold text-error flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">warning</span> Insufficient</span>
+                      ) : (
+                        <span className="font-black text-primary text-xl">₱{change.toFixed(2)}</span>
+                      )}
                     </div>
                 </div>
 
                 {/* Quick amounts */}
-                <div className="grid grid-cols-4 gap-3 mb-6">
+                <div className="grid grid-cols-4 gap-3 mb-6 mt-6">
                     <button className="col-span-1 rounded-xl bg-surface-container py-3 font-bold text-primary hover:bg-primary/10 transition-colors" onClick={() => handleQuickAmount(total)}>
                         Exact
                     </button>
@@ -441,7 +563,7 @@ export default function POSPage() {
                     </button>
                     <button 
                         onClick={completeCheckout}
-                        disabled={checkingOut}
+                        disabled={checkingOut || isInsufficient || amountTendered === ""}
                         className="flex-1 bg-primary text-white rounded-2xl font-black text-2xl flex items-center justify-center hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-primary/20 disabled:scale-100 disabled:opacity-50"
                     >
                         {checkingOut ? (
@@ -475,6 +597,22 @@ export default function POSPage() {
             <p className="text-on-surface-variant font-medium mb-1">Receipt ID</p>
             <p className="font-mono text-primary font-bold text-sm bg-primary-container/30 py-2 px-4 rounded-xl break-all mb-6 border border-primary/10 inline-block">{receipt.id}</p>
             
+            <div className="bg-surface-container-highest rounded-2xl p-4 mb-6 text-left">
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-sm font-semibold text-on-surface-variant">Amount Due:</span>
+                <span className="text-sm font-bold">₱{receipt.total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center mb-1">
+                <span className="text-sm font-semibold text-on-surface-variant">Tendered:</span>
+                <span className="text-sm font-bold">₱{receipt.amountTendered.toFixed(2)}</span>
+              </div>
+              <div className="w-full border-t border-dashed border-outline-variant/30 my-2" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-bold text-primary">Change:</span>
+                <span className="text-lg font-black text-primary">₱{receipt.change.toFixed(2)}</span>
+              </div>
+            </div>
+
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => window.print()}
@@ -524,33 +662,52 @@ export default function POSPage() {
 
               <div className="border-b-2 border-dashed border-black/30 my-3 w-full" />
               
-              <div className="mb-4 space-y-2">
-                 {receipt.items.map((item, idx) => (
-                    <div key={idx} className="flex justify-between items-start gap-4">
-                       <div className="flex-1">
-                          <span className="font-bold">{item.qty}x</span> {item.name}
-                       </div>
-                       <div className="shrink-0">
-                          ₱{(item.price * item.qty).toFixed(2)}
-                       </div>
-                    </div>
-                 ))}
+              <div className="mb-4 space-y-3">
+                 {receipt.items.map((item, idx) => {
+                    const itemTotal = (item.price + (item.addOns?.reduce((s, a) => s + a.price, 0) || 0)) * item.qty;
+                    return (
+                      <div key={idx} className="flex flex-col gap-1">
+                        <div className="flex justify-between items-start gap-4">
+                          <div className="flex-1 font-bold">
+                              {item.qty}x {item.name}
+                          </div>
+                          <div className="shrink-0 font-bold">
+                              ₱{itemTotal.toFixed(2)}
+                          </div>
+                        </div>
+                        {item.addOns && item.addOns.length > 0 && (
+                          <div className="pl-6 space-y-0.5 text-xs">
+                            {item.addOns.map((a, i) => (
+                              <div key={i} className="flex justify-between">
+                                <span>+ {a.name}</span>
+                                <span>(₱{a.price.toFixed(2)})</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                 })}
               </div>
 
               <div className="border-b-2 border-dashed border-black/30 my-3 w-full" />
-
-              <div className="space-y-1 mb-2">
-                 <div className="flex justify-between">
-                    <span>Subtotal</span>
-                    <span>₱{receipt.subtotal.toFixed(2)}</span>
-                 </div>
-              </div>
-              
-              <div className="border-b-2 border-solid border-black my-2 w-full" />
               
               <div className="flex justify-between font-black text-xl my-2">
                  <span>TOTAL</span>
                  <span>₱{receipt.total.toFixed(2)}</span>
+              </div>
+
+              <div className="border-b border-solid border-black my-2 w-full" />
+              
+              <div className="space-y-1 my-2">
+                 <div className="flex justify-between">
+                    <span>CASH TENDERED</span>
+                    <span>₱{receipt.amountTendered.toFixed(2)}</span>
+                 </div>
+                 <div className="flex justify-between font-bold">
+                    <span>CHANGE DUE</span>
+                    <span>₱{receipt.change.toFixed(2)}</span>
+                 </div>
               </div>
 
               <div className="border-b border-solid border-black my-2 w-full" />

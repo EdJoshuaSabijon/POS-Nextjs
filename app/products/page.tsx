@@ -50,14 +50,23 @@ export default function ProductsPage() {
             Manage ceremonial grades, accessories, and botanical blends.
           </p>
         </div>
-        <button
-          id="btn-add-product"
-          onClick={() => { setEditItem(null); setShowForm(true); }}
-          className="bg-primary text-on-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:opacity-90 transition-opacity"
-        >
-          <span className="material-symbols-outlined text-[18px]">add</span>
-          Add Product
-        </button>
+        <div className="flex items-center gap-2">
+            <a
+              href="/products/add-ons"
+              className="bg-surface-container-highest text-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:bg-surface-dim transition-colors"
+            >
+              <span className="material-symbols-outlined text-[18px]">settings_suggest</span>
+              Manage Add-Ons
+            </a>
+            <button
+              id="btn-add-product"
+              onClick={() => { setEditItem(null); setShowForm(true); }}
+              className="bg-primary text-on-primary px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 hover:opacity-90 transition-opacity"
+            >
+              <span className="material-symbols-outlined text-[18px]">add</span>
+              Add Product
+            </button>
+        </div>
       </div>
 
       {/* Filters */}

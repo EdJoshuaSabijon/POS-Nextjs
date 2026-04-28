@@ -15,6 +15,13 @@ export type Product = {
   sku?: string;
 };
 
+export type AddOn = {
+  id: string;
+  name: string;
+  price: number;
+  available: boolean;
+};
+
 export type OrderItem = { name: string; qty: number; price: number };
 export type Order = {
   id: string;
@@ -30,6 +37,7 @@ type CartItem = { product: Product; quantity: number };
 type State = {
   products: Product[];
   orders: Order[];
+  addOns: AddOn[];
   cart: CartItem[];
   loading: boolean;
 };
@@ -37,6 +45,7 @@ type State = {
 type Action =
   | { type: "SET_PRODUCTS"; payload: Product[] }
   | { type: "SET_ORDERS"; payload: Order[] }
+  | { type: "SET_ADDONS"; payload: AddOn[] }
   | { type: "ADD_TO_CART"; payload: Product }
   | { type: "SET_CART"; payload: CartItem[] }
   | { type: "UPDATE_CART_QTY"; payload: { id: string; quantity: number } }
@@ -49,7 +58,7 @@ type Dispatch = (action: Action | ((dispatch: Dispatch, getState: () => State) =
 
 // ─── Reducer ──────────────────────────────────────────────────────────────────
 
-const initialState: State = { products: [], orders: [], cart: [], loading: false };
+const initialState: State = { products: [], orders: [], addOns: [], cart: [], loading: false };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -57,6 +66,8 @@ function reducer(state: State, action: Action): State {
       return { ...state, products: action.payload };
     case "SET_ORDERS":
       return { ...state, orders: action.payload };
+    case "SET_ADDONS":
+      return { ...state, addOns: action.payload };
     case "ADD_TO_CART": {
       const p = action.payload;
       const existing = state.cart.find((c) => c.product.id === p.id);
@@ -108,6 +119,7 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
     // Initial fetch
     dispatch(fetchProducts());
     dispatch(fetchOrders());
+    dispatch(fetchAddOns());
 
     // Subscribe to realtime changes
     const channel = supabase
@@ -121,6 +133,11 @@ export const StoreProvider = ({ children }: { children: React.ReactNode }) => {
         "postgres_changes",
         { event: "*", schema: "public", table: "orders" },
         () => { dispatch(fetchOrders()); }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "add_ons" },
+        () => { dispatch(fetchAddOns()); }
       )
       .subscribe();
 
@@ -159,4 +176,13 @@ export const fetchOrders =
       .order("date", { ascending: false });
     if (!error && data) dispatch({ type: "SET_ORDERS", payload: data as Order[] });
     dispatch({ type: "SET_LOADING", payload: false });
+  };
+
+export const fetchAddOns =
+  () => async (dispatch: Dispatch) => {
+    const { data, error } = await supabase
+      .from("add_ons")
+      .select("*")
+      .order("name");
+    if (!error && data) dispatch({ type: "SET_ADDONS", payload: data as AddOn[] });
   };
